@@ -135,8 +135,9 @@ def call_gemini(terms: list[str], api_key: str, model_name: str) -> list[dict]:
 
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}"
-        f":generateContent?key={api_key}"
+        f":generateContent"
     )
+    headers = {"x-goog-api-key": api_key}
     payload = {
         "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [{"parts": [{"text": user_prompt}]}],
@@ -146,7 +147,7 @@ def call_gemini(terms: list[str], api_key: str, model_name: str) -> list[dict]:
     for attempt in range(3):
         try:
             import requests as req
-            resp = req.post(url, json=payload, timeout=60)
+            resp = req.post(url, json=payload, headers=headers, timeout=60)
             if resp.status_code >= 500:
                 logger.warning("Gemini 回應 %d，第 %d 次重試", resp.status_code, attempt + 1)
                 time.sleep(2 ** attempt)

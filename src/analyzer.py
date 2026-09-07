@@ -19,11 +19,11 @@ GEMINI_MODEL = (os.environ.get("GEMINI_MODEL_NAME") or "").strip() or "gemini-2.
 logger.debug("使用 Gemini 模型：%s", GEMINI_MODEL)
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "{model}:generateContent?key={api_key}"
+    "{model}:generateContent"
 )
 GEMINI_EMBED_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-embedding-2:embedContent?key={api_key}"
+    "gemini-embedding-2:embedContent"
 )
 EMBED_DIMENSIONS = 768  # MRL truncation from 3072; balances accuracy vs storage
 
@@ -260,13 +260,14 @@ def generate_embedding(text: str) -> list | None:
     Returns None on any API failure so callers can skip similarity checks gracefully.
     """
     api_key = _get_api_key()
-    url = GEMINI_EMBED_URL.format(api_key=api_key)
+    url = GEMINI_EMBED_URL
+    headers = {"x-goog-api-key": api_key}
     payload = {
         "content": {"parts": [{"text": f"task: semantic_similarity\n\n{text[:4000]}"}]},
         "outputDimensionality": EMBED_DIMENSIONS,
     }
     try:
-        resp = requests.post(url, json=payload, timeout=30)
+        resp = requests.post(url, json=payload, headers=headers, timeout=30)
         resp.raise_for_status()
         return resp.json()["embedding"]["values"]
     except Exception as e:
@@ -427,7 +428,8 @@ def _call_gemini(prompt, api_key, retries=None, system_prompt=None):
         retries = int(os.environ.get("GEMINI_MAX_RETRIES", "8"))
     if system_prompt is None:
         system_prompt = SYSTEM_PROMPT
-    url = GEMINI_API_URL.format(model=GEMINI_MODEL, api_key=api_key)
+    url = GEMINI_API_URL.format(model=GEMINI_MODEL)
+    headers = {"x-goog-api-key": api_key}
     try:
         maxOutputTokens = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "8192"))
     except ValueError:
@@ -449,7 +451,7 @@ def _call_gemini(prompt, api_key, retries=None, system_prompt=None):
     for attempt in range(1, retries + 1):
         resp = None
         try:
-            resp = requests.post(url, json=payload, timeout=120)
+            resp = requests.post(url, json=payload, headers=headers, timeout=120)
             last_status = resp.status_code
             if resp.status_code == 200:
                 data = resp.json()
