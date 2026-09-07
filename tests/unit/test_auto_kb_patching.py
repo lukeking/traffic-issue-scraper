@@ -372,8 +372,8 @@ def fake_requests(monkeypatch):
     """把 `requests` 換成假的。`queue` 依序供應回應，`posts` 記錄送出去的東西。"""
     calls = types.SimpleNamespace(posts=[], queue=[])
 
-    def _post(url, json=None, timeout=None):
-        calls.posts.append({"url": url, "payload": json})
+    def _post(url, json=None, timeout=None, headers=None):
+        calls.posts.append({"url": url, "payload": json, "headers": headers})
         return calls.queue.pop(0)
 
     monkeypatch.setitem(sys.modules, "requests", types.SimpleNamespace(post=_post))
@@ -435,3 +435,33 @@ def test_call_gemini_retries_after_server_error(fake_requests):
     assert out == [{"jp_term": "オメガ", "tw_term": "歐米茄"}]
     assert len(fake_requests.posts) == 2
     assert not server_error.raise_for_status_called, "5xx 應在 raise_for_status 之前就 continue"
+
+
+def test_call_gemini_key_in_header_not_url(fake_requests):
+    """key 若留在 URL 查詢字串，第 161 行的 `logger.warning(..., exc)` 會把它印進 log
+    ——例外訊息含完整 URL。所以斷言的是 requests 實際收到的 (url, headers)。
+    """
+    fake_requests.queue.append(_FakeResponse('[{"jp_term": "オメガ", "tw_term": "歐米茄"}]'))
+
+    auto_kb.call_gemini(["オメガ"], "dummy-key-for-test", "gemini-x-flash")
+
+    sent = fake_requests.posts[0]
+    assert "key=" not in sent["url"], "URL 不該含 key= 這個查詢參數"
+    assert "dummy-key-for-test" not in sent["url"], "URL 不該含 API key 本體"
+    assert sent["headers"]["x-goog-api-key"] == "dummy-key-for-test"
+
+
+def test_call_gemini_sends_header_on_every_retry(fake_requests):
+    """headers 建在 for 迴圈外，只驗第一次看不出重試有沒有帶它——
+    而重試那條路徑正是會把例外（含 URL）寫進 log 的那條。
+    """
+    fake_requests.queue.append(_FakeResponse(status_code=503))
+    fake_requests.queue.append(_FakeResponse(status_code=503))
+    fake_requests.queue.append(_FakeResponse('[{"jp_term": "オメガ", "tw_term": "歐米茄"}]'))
+
+    auto_kb.call_gemini(["オメガ"], "dummy-key-for-test", "gemini-x-flash")
+
+    assert len(fake_requests.posts) == 3, f"應重試到第 3 次，實際 {len(fake_requests.posts)} 次"
+    for i, sent in enumerate(fake_requests.posts, 1):
+        assert "key=" not in sent["url"], f"第 {i} 次的 URL 不該含 key="
+        assert sent["headers"]["x-goog-api-key"] == "dummy-key-for-test", f"第 {i} 次沒帶 header"
