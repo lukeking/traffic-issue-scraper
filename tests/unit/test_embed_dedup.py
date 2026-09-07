@@ -101,3 +101,34 @@ def test_generation_failure_does_not_mention_the_wiring(caplog):
 
     joined = " ".join(r.getMessage() for r in caplog.records)
     assert "attach_embeddings" not in joined
+
+
+def test_generation_failure_is_counted_out_loud(caplog):
+    """生成失敗必須有一行帶筆數的彙總警告。上一條只斷言不要說什麼，
+    所以「什麼都不說」對它是綠的；這條斷言要說什麼。緣由見 BACKLOG #13。
+    """
+    with caplog.at_level(logging.WARNING):
+        kept = embed_dedup(
+            [_art(1, None), _art(2, None), _art(3, BASE)], [], threshold=0.88
+        )
+
+    assert sorted(a["id"] for a in kept) == [1, 2, 3], "無向量的文章要保留，不是丟掉"
+    warns = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("2/3" in m for m in warns), \
+        f"要有一行帶「2/3」的彙總警告，實際只有：{warns}"
+
+
+def test_missing_key_is_not_double_counted_as_generation_failure(caplog):
+    """缺鍵的那批解析後值也是 None，不可重複算進生成失敗——
+    重複計數是「把兩個成因混在一起」的另一種形式。
+    """
+    with caplog.at_level(logging.WARNING):
+        embed_dedup(
+            [{"id": 1, "title": "無鍵"}, _art(2, None), _art(3, BASE)], [], threshold=0.88
+        )
+
+    warns = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("1/3" in m and "attach_embeddings" in m for m in warns), \
+        f"缺鍵應報 1/3 並指名 attach_embeddings：{warns}"
+    assert any("1/3" in m and "attach_embeddings" not in m for m in warns), \
+        f"生成失敗應獨立報 1/3（不是 2/3）：{warns}"

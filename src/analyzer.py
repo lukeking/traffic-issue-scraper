@@ -342,6 +342,15 @@ def embed_dedup(candidates: list, buffer_articles: list, threshold: float = 0.88
     has_embed = [a for a in candidates if a.get("embedding") is not None]
     no_embed = [a for a in candidates if a.get("embedding") is None]
 
+    # 缺鍵的那批解析後也是 None，扣掉才不會把接線錯誤重複算成 API 故障。
+    generation_failed = len(no_embed) - never_attempted
+    if generation_failed:
+        logger.warning(
+            "[embed_dedup] %d/%d 篇候選的向量生成失敗，這批不會被去重"
+            "（逐筆原因見上方 [embedding] 生成失敗）",
+            generation_failed, len(candidates),
+        )
+
     if not has_embed:
         logger.warning("[embed_dedup] 所有候選都沒有可用向量，保留所有")
         return candidates
